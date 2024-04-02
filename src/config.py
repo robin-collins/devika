@@ -1,80 +1,110 @@
-import toml
 import os
+from os import environ
+
+import toml
+from fastlogging import LogInit
+from toml import TomlDecodeError
 
 
 class Config:
     _instance = None
+    _logger = None
 
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._load_config()
-        return cls._instance
+        if cls._instance:
+            return cls._instance
 
-    def _load_config(self):
-        # If the config file doesn't exist, copy from the sample
-        if not os.path.exists("config.toml"):
-            with open("sample.config.toml", "r") as f_in, open("config.toml", "w") as f_out:
-                f_out.write(f_in.read())
+        cls._instance = super().__new__(cls)
+        cls._logger = LogInit(pathName="logs/core.log", console=True, colors=True)
 
-        self.config = toml.load("config.toml")
+        try:
+            cls._instance.config = toml.load("config.toml")
+            return cls._instance
+
+        except FileNotFoundError as e:
+            cls._logger.critical(f"Configuration file '{os.path.join(os.getcwd(), e.filename)}' not found")
+            cls._logger.info(f"Did you forget to create 'config.toml' file at the project root ( {os.getcwd()} )?")
+        except TomlDecodeError as e:
+            cls._logger.critical(f"There is something wrong with your 'config.toml' file: {e}")
+
+        cls._logger.info("Checkout 'config.example.toml' and https://toml.io/en/ for more information on TOML.")
+        exit(1)
 
     def get_config(self):
         return self.config
 
-    def get_bing_api_endpoint(self):
-        return self.config["API_ENDPOINTS"]["BING"]
+    def try_get(self, *keys):
+        try:
+            value = self.config
+            for key in keys:
+                value = value[key]
+
+            return value, None, None
+        except KeyError as e:
+            sample = "Some value"
+            for key in reversed(keys):
+                sample = {key: sample}
+
+            err = f"Key {e} of {'.'.join(keys)} not found in config.toml using 'None' as default value"
+            fix = f"To fix this, update 'config.toml' with\n\n{toml.dumps(sample)}\n"
+            return None, err, fix
+
+    def try_get_with_warning(self, *keys):
+        value, err, fix = self.try_get(*keys)
+        if err:
+            self._logger.warning(err)
+            self._logger.info(fix)
+        return value
+
+    def try_get_with_error(self, *keys):
+        value, err, fix = self.try_get(*keys)
+        if err:
+            self._logger.error(err)
+            self._logger.info(fix)
+            exit(1)
+        return value
 
     def get_bing_api_key(self):
-        return self.config["API_KEYS"]["BING"]
-    
-    def get_google_search_api_key(self):
-        return self.config["API_KEYS"]["GOOGLE_SEARCH"]
+        return environ.get("BING_API_KEY", self.try_get_with_warning("API_KEYS", "BING"))
 
-    def get_google_search_engine_id(self):
-        return self.config["API_KEYS"]["GOOGLE_SEARCH_ENGINE_ID"]
+    def get_bing_api_endpoint(self):
+        return environ.get("BING_API_ENDPOINT", self.try_get_with_warning("API_ENDPOINTS", "BING"))
 
     def get_google_search_api_endpoint(self):
         return self.config["API_ENDPOINTS"]["GOOGLE"]
     
     def get_ollama_api_endpoint(self):
-        return self.config["API_ENDPOINTS"]["OLLAMA"]
+        return environ.get("OLLAMA_API_ENDPOINT", self.try_get_with_warning("API_ENDPOINTS", "OLLAMA"))
 
     def get_claude_api_key(self):
-        return self.config["API_KEYS"]["CLAUDE"]
+        return environ.get("CLAUDE_API_KEY", self.try_get_with_warning("API_KEYS", "CLAUDE"))
 
     def get_openai_api_key(self):
-        return self.config["API_KEYS"]["OPENAI"]
-
-    def get_gemini_api_key(self):
-        return self.config["API_KEYS"]["GEMINI"]
-
-    def get_mistral_api_key(self):
-        return self.config["API_KEYS"]["MISTRAL"]
-
-    def get_groq_api_key(self):
-        return self.config["API_KEYS"]["GROQ"]
+        return environ.get("OPENAI_API_KEY", self.try_get_with_warning("API_KEYS", "OPENAI"))
 
     def get_netlify_api_key(self):
-        return self.config["API_KEYS"]["NETLIFY"]
+        return environ.get("NETLIFY_API_KEY", self.try_get_with_warning("API_KEYS", "NETLIFY"))
+
+    def get_groq_api_key(self):
+        return environ.get("GROQ_API_KEY", self.try_get_with_warning("API_KEYS", "GROQ"))
 
     def get_sqlite_db(self):
-        return self.config["STORAGE"]["SQLITE_DB"]
+        return environ.get("SQLITE_DB_PATH", self.try_get_with_error("STORAGE", "SQLITE_DB"))
 
     def get_screenshots_dir(self):
-        return self.config["STORAGE"]["SCREENSHOTS_DIR"]
+        return environ.get("SCREENSHOTS_DIR", self.try_get_with_error("STORAGE", "SCREENSHOTS_DIR"))
 
     def get_pdfs_dir(self):
-        return self.config["STORAGE"]["PDFS_DIR"]
+        return environ.get("PDFS_DIR", self.try_get_with_error("STORAGE", "PDFS_DIR"))
 
     def get_projects_dir(self):
-        return self.config["STORAGE"]["PROJECTS_DIR"]
+        return environ.get("PROJECTS_DIR", self.try_get_with_error("STORAGE", "PROJECTS_DIR"))
 
     def get_logs_dir(self):
-        return self.config["STORAGE"]["LOGS_DIR"]
+        return environ.get("LOGS_DIR", self.try_get_with_error("STORAGE", "LOGS_DIR"))
 
     def get_repos_dir(self):
-        return self.config["STORAGE"]["REPOS_DIR"]
+        return environ.get("REPOS_DIR", self.try_get_with_error("STORAGE", "REPOS_DIR"))
 
     def get_logging_rest_api(self):
         return self.config["LOGGING"]["LOG_REST_API"] == "true"
